@@ -1,85 +1,68 @@
 import RPi.GPIO as GPIO
- 
+import spidev
+import time
+import os
+
 GPIO.setmode(GPIO.BCM)
 DEBUG = 1
  
-# read SPI data from MCP3008 chip, 8 possible adc's (0 thru 7)
-def readadc(adcnum, clockpin, mosipin, misopin, cspin):
-  if ((adcnum > 7) or (adcnum < 0)):
-    return -1
-  GPIO.output(cspin, True)
+# Open SPI bus
+spi = spidev.SpiDev()
+spi.open(0,0)
  
-  GPIO.output(clockpin, False)  # start clock low
-  GPIO.output(cspin, False)     # bring CS low
+# Function to read SPI data from MCP3008 chip
+# Channel must be an integer 0-7
+def ReadChannel(channel):
+ if (channel < 0) or (channel > 7)
+  return -1
+ adc = spi.xfer2([1,(8+channel)<<4,0])
+ data = ((adc[1]&3) << 8) + adc[2]
+ return data
  
-  commandout = adcnum
-  commandout |= 0x18  # start bit + single-ended bit
-  commandout <<= 3    # we only need to send 5 bits here
-  for i in range(5):
-    if (commandout & 0x80):
-      GPIO.output(mosipin, True)
-    else:
-      GPIO.output(mosipin, False)
-    commandout <<= 1
-    GPIO.output(clockpin, True)
-    GPIO.output(clockpin, False)
+# Function to convert data to voltage level,
+# rounded to specified number of decimal places.
+def ConvertVolts(data,places):
+ volts = (data * 3.3) / float(1023)
+ volts = round(volts,places)
+ return volts
 
-  adcout = 0
-  # read in one empty bit, one null bit and 10 ADC bits
-  for i in range(12):
-    GPIO.output(clockpin, True)
-    GPIO.output(clockpin, False)
-    adcout <<= 1
-    if (GPIO.input(misopin)):
-      adcout |= 0x1
+# Function to calculate temperature from
+# TMP36 data, rounded to specified
+# number of decimal places.
+def ConvertTemp(data,places):
+  # ADC Value
+  # (approx)  Temp  Volts
+  #    0      -50    0.00
+  #   78      -25    0.25
+  #  155        0    0.50
+  #  233       25    0.75
+  #  310       50    1.00
+  #  465      100    1.50
+  #  775      200    2.50
+  # 1023      280    3.30
+  temp = ((data * 330)/float(1023))-50
+  temp = round(temp,places)
+  return temp
+  
+light_channel = 0;
+temp_channel = 1;
 
-  GPIO.output(cspin, True)
-
-  adcout >>= 1       # first bit is 'null' so drop it
-  return adcout
- 
-# change these as desired - they're the pins connected from the
-# SPI port on the ADC to the Cobbler
-SPICLK = 18
-SPIMISO = 23
-SPIMOSI = 24
-SPICS = 25
- 
-# set up the SPI interface pins
-GPIO.setup(SPIMOSI, GPIO.OUT)
-GPIO.setup(SPIMISO, GPIO.IN)
-GPIO.setup(SPICLK, GPIO.OUT)
-GPIO.setup(SPICS, GPIO.OUT)
- 
-sensor1_adc = 0;
-sensor2_adc = 1;
-sensor3_adc = 2;
-sensor4_adc = 3;
-sensor5_adc = 4;
-sensor6_adc = 5;
-sensor7_adc = 6;
-sensor8_adc = 7;
+# Define delay between readings
+delay = 5
 
 while True:
-  # read the analog pin
-  sensor1 = readadc(sensor1_adc, SPICLK, SPIMOSI, SPIMISO, SPICS)
-  sensor2 = readadc(sensor2_adc, SPICLK, SPIMOSI, SPIMISO, SPICS)
-  sensor3 = readadc(sensor3_adc, SPICLK, SPIMOSI, SPIMISO, SPICS)
-  sensor4 = readadc(sensor4_adc, SPICLK, SPIMOSI, SPIMISO, SPICS)
-  sensor5 = readadc(sensor5_adc, SPICLK, SPIMOSI, SPIMISO, SPICS)
-  sensor6 = readadc(sensor6_adc, SPICLK, SPIMOSI, SPIMISO, SPICS)
-  sensor7 = readadc(sensor7_adc, SPICLK, SPIMOSI, SPIMISO, SPICS)
-  sensor8 = readadc(sensor8_adc, SPICLK, SPIMOSI, SPIMISO, SPICS)
+ # read the analog pin
+ light_level = ReadChannel(light_channel)
+ light_volts = ConvertVolts(light_level,2)
 
-  if DEBUG:
-    print("sensor1: ", sensor1)
-    print("sensor2: ", sensor2)
-    print("sensor3: ", sensor3)
-    print("sensor4: ", sensor4)
-    print("sensor5: ", sensor5)
-    print("sensor6: ", sensor6)
-    print("sensor7: ", sensor7)
-    print("sensor8: ", sensor8)
+ temp_level = ReadChannel(temp_channel)
+ temp_volts = ConvertVolts(temp_level,2)
+ temp       = ConvertTemp(temp_level,2)
 
-  # hang out and do nothing for a half second
-  time.sleep(0.5)
+
+if DEBUG:
+  print("Light: {} ({}V)".format(light_level,light_volts))
+  print("Temp : {} ({}V) {} deg C".format(temp_level,temp_volts,temp))
+
+# hang out and do nothing for a half second
+time.sleep(delay)
